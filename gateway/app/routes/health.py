@@ -1,0 +1,47 @@
+"""Unauthenticated probe endpoints for load balancers and orchestrators."""
+from typing import Any
+
+from fastapi import APIRouter, Request, status
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+router = APIRouter(tags=["Operations"])
+
+
+@router.get("/health")
+async def health(request: Request) -> dict[str, Any]:
+    return {"status": "ok", "service": "gateway", "version": request.app.state.settings.version}
+
+
+@router.get("/live")
+async def live() -> dict[str, str]:
+    return {"status": "alive"}
+
+
+@router.get("/ready")
+async def ready(request: Request) -> JSONResponse:
+    dependencies: dict[str, str] = {}
+    healthy = True
+    if request.app.state.redis:
+        try:
+            await request.app.state.redis.ping()
+            dependencies["redis"] = "ok"
+        except Exception:
+            dependencies["redis"] = "unavailable"
+            healthy = False
+    if request.app.state.db_engine:
+        try:
+            from sqlalchemy import text
+            async with request.app.state.db_engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+            dependencies["database"] = "ok"
+        except Exception:
+            dependencies["database"] = "unavailable"
+            healthy = False
+    return JSONResponse(status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
+                        content={"status": "ready" if healthy else "not_ready", "dependencies": dependencies})
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

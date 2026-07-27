@@ -1,0 +1,29 @@
+services:
+  gateway:
+    build: ./gateway
+    env_file: ./gateway/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pesaguard
+      POSTGRES_USER: pesaguard
+      POSTGRES_PASSWORD: pesaguard
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pesaguard -d pesaguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
