@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pesaguard-gateway
+  namespace: pesaguard
+  labels: { app.kubernetes.io/name: pesaguard-gateway }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: pesaguard-gateway }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

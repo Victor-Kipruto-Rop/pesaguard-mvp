@@ -1,7 +1,7 @@
 services:
   gateway:
     build: ./gateway
-    env_file: ./gateway/.env
+    env_file: ./gateway/.env.example
     ports:
       - "8000:8000"
     depends_on:

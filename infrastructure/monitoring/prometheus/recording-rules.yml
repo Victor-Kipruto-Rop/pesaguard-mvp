@@ -1,0 +1,7 @@
+groups:
+  - name: pesaguard-gateway-recording
+    rules:
+      - record: job:pesaguard_gateway_error_ratio:5m
+        expr: sum(rate(pesaguard_gateway_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(pesaguard_gateway_requests_total[5m])), 1)
+      - record: job:pesaguard_gateway_latency_p95:5m
+        expr: histogram_quantile(0.95, sum(rate(pesaguard_gateway_request_duration_seconds_bucket[5m])) by (le))

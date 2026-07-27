@@ -1,0 +1,18 @@
+name: Gateway security checks
+
+on:
+  pull_request:
+    paths: ["gateway/**", "deployments/helm/pesaguard/**", ".github/workflows/security-scan.yml"]
+  push:
+    branches: [main]
+
+permissions: { contents: read, security-events: write }
+
+jobs:
+  dependency-and-secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with: { languages: python }
+      - uses: github/codeql-action/analyze@v3

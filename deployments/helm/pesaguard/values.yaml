@@ -1,0 +1,36 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/pesaguard/gateway
+  tag: latest
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8000
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8000"
+ingress:
+  enabled: true
+  className: nginx
+  host: api.pesaguard.example
+  tlsSecretName: pesaguard-gateway-tls
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 512Mi }
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+env:
+  PESAGUARD_ENVIRONMENT: production
+  PESAGUARD_DOCS_ENABLED: "false"
+  PESAGUARD_REDIS_URL: redis://redis:6379/0
+  PESAGUARD_JWT_ALGORITHM: RS256
+  PESAGUARD_JWT_AUDIENCE: pesaguard-api
+  PESAGUARD_JWT_ISSUER: pesaguard
+secretName: pesaguard-gateway-secrets
+externalSecret:
+  enabled: false
+  secretStoreRef: ""
+  data: []

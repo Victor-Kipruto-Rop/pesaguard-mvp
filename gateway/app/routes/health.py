@@ -26,9 +26,21 @@ async def ready(request: Request) -> JSONResponse:
         try:
             await request.app.state.redis.ping()
             dependencies["redis"] = "ok"
+            dependencies["rate_limit"] = "redis"
         except Exception:
             dependencies["redis"] = "unavailable"
+            if request.app.state.settings.rate_limit_fail_open or request.app.state.settings.environment != "production":
+                dependencies["rate_limit"] = "local_fallback"
+            else:
+                dependencies["rate_limit"] = "unavailable"
+                healthy = False
+    else:
+        dependencies["redis"] = "not_configured"
+        if request.app.state.settings.environment == "production" and not request.app.state.settings.rate_limit_fail_open:
+            dependencies["rate_limit"] = "unavailable"
             healthy = False
+        else:
+            dependencies["rate_limit"] = "local_fallback"
     if request.app.state.db_engine:
         try:
             from sqlalchemy import text

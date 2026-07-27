@@ -1,0 +1,4 @@
+replicaCount: 1
+image: { pullPolicy: Never }
+ingress: { enabled: false }
+env: { PESAGUARD_ENVIRONMENT: development, PESAGUARD_DOCS_ENABLED: "true" }

@@ -1,0 +1,4 @@
+image: { tag: stable }
+replicaCount: 3
+autoscaling: { minReplicas: 3, maxReplicas: 20, targetCPUUtilizationPercentage: 65 }
+ingress: { host: api.pesaguard.example }

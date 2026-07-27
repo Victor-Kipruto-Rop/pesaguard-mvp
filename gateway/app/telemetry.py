@@ -14,3 +14,9 @@ def configure_tracing(settings: Settings) -> None:
     provider = TracerProvider(resource=Resource.create({"service.name": "pesaguard-gateway"}))
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.otel_endpoint, insecure=True)))
     trace.set_tracer_provider(provider)
+
+
+def instrument_application(app) -> None:
+    """Install ASGI and HTTP client instrumentation once during application creation."""
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="health,live,ready,metrics")

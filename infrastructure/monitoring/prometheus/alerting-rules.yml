@@ -1,0 +1,24 @@
+groups:
+  - name: pesaguard-gateway-alerts
+    rules:
+      - alert: PesaGuardGatewayUnavailable
+        expr: up{job="kubernetes-gateway"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: PesaGuard gateway target is unavailable
+          runbook: docs/operations/gateway-runbook.md
+      - alert: PesaGuardGatewayHighErrorRate
+        expr: job:pesaguard_gateway_error_ratio:5m > 0.02
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: Gateway 5xx rate exceeds 2 percent
+          runbook: docs/operations/gateway-runbook.md
+      - alert: PesaGuardGatewayHighLatency
+        expr: job:pesaguard_gateway_latency_p95:5m > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Gateway p95 latency exceeds one second
+          runbook: docs/operations/gateway-runbook.md

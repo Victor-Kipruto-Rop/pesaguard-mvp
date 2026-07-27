@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pesaguard-gateway.fullname" . }}
+  annotations:
+{{- toYaml .Values.service.annotations | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: { app.kubernetes.io/name: {{ include "pesaguard-gateway.name" . }} }
+  ports: [{ name: http, port: {{ .Values.service.port }}, targetPort: http }]

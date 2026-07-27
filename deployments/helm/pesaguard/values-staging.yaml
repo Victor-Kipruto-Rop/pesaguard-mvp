@@ -1,0 +1,3 @@
+image: { tag: staging }
+ingress: { host: api.staging.pesaguard.example }
+env: { PESAGUARD_ENVIRONMENT: staging, PESAGUARD_DOCS_ENABLED: "false" }

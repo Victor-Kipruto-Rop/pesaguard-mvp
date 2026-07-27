@@ -1,0 +1,24 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {}
+      http: {}
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+extensions:
+  health_check: {}
+exporters:
+  otlphttp:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      authorization: ${env:OTEL_EXPORTER_OTLP_AUTHORIZATION}
+service:
+  extensions: [health_check]
+  pipelines:
+    traces: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlphttp] }
+    metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlphttp] }
