@@ -8,6 +8,10 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 router = APIRouter(tags=["Operations"])
 
 
+def _probe_cache_key(service: str, settings: Any) -> tuple[str, str, str]:
+    return (service, settings.environment, settings.version)
+
+
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
     return {"status": "ok", "service": "gateway", "version": request.app.state.settings.version}
@@ -53,12 +57,26 @@ async def ready(request: Request) -> JSONResponse:
             healthy = False
 
     if settings.route_config:
+        cache = getattr(request.app.state, "ready_probe_cache", None)
+        if cache is None:
+            cache = {}
+            request.app.state.ready_probe_cache = cache
+
         for service in settings.route_services():
+            cache_key = _probe_cache_key(service, settings)
+            cached_status = cache.get(cache_key)
+            if cached_status is not None:
+                dependencies[f"service:{service}"] = cached_status
+                if cached_status != "ok":
+                    healthy = False
+                continue
+
             upstream = settings.upstream_for(service)
             if not upstream:
                 dependencies[f"service:{service}"] = "not_discovered"
                 if settings.environment == "production":
                     healthy = False
+                cache[cache_key] = dependencies[f"service:{service}"]
                 continue
             try:
                 health_response = await request.app.state.service_client.request(
@@ -69,11 +87,14 @@ async def ready(request: Request) -> JSONResponse:
                 )
                 if 200 <= health_response.status_code < 300:
                     dependencies[f"service:{service}"] = "ok"
+                    cache[cache_key] = "ok"
                 else:
                     dependencies[f"service:{service}"] = f"unhealthy:{health_response.status_code}"
+                    cache[cache_key] = dependencies[f"service:{service}"]
                     healthy = False
             except Exception:
                 dependencies[f"service:{service}"] = "unavailable"
+                cache[cache_key] = dependencies[f"service:{service}"]
                 healthy = False
 
     return JSONResponse(status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,

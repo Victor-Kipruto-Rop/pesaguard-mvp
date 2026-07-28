@@ -30,3 +30,18 @@ services:
     health_path: /health
     health_method: GET
     methods: [GET, POST]
+  - name: transactions
+    env_var: PESAGUARD_TRANSACTIONS_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: reports
+    env_var: PESAGUARD_REPORTS_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
+  - name: audit
+    env_var: PESAGUARD_AUDIT_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]

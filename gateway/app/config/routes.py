@@ -19,6 +19,7 @@ class ServiceDefinition(BaseModel):
     health_path: str = "/health"
     health_method: str = "GET"
     methods: list[str] = Field(default_factory=lambda: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+    path_prefix: str = Field(default="/api/v1")
 
     model_config = {
         "extra": "forbid",
@@ -69,6 +70,13 @@ class ServiceDefinition(BaseModel):
                 raise ValueError(f"unsupported HTTP method '{method}'")
             normalized.append(method_upper)
         return normalized
+
+    @field_validator("path_prefix")
+    @classmethod
+    def validate_path_prefix(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.startswith("/"):
+            raise ValueError("path_prefix must be an absolute path starting with '/'")
+        return value.rstrip("/") or "/"
 
 
 class RouteConfig(BaseModel):
@@ -156,6 +164,9 @@ class RouteConfig(BaseModel):
 
     def supported_methods_for(self, service: str) -> tuple[str, ...]:
         return tuple(self.service_definition(service).methods)
+
+    def path_prefix_for(self, service: str) -> str:
+        return self.service_definition(service).path_prefix
 
     def service_url_from_environment(self, service: str, env: dict[str, str] | None = None) -> str | None:
         env = env or __import__("os").environ

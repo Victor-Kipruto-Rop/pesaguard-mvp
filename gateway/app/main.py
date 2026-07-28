@@ -15,6 +15,7 @@ from app.lifecycle import lifespan
 from app.logging import redact_sensitive_fields
 from app.middleware import AuthenticationMiddleware, IdempotencyMiddleware, RateLimitMiddleware, RequestContextMiddleware, SecurityMiddleware
 from app.routes import admin_router, health_router, proxy_router
+from app.routes.proxy import register_proxy_routes
 from app.telemetry import instrument_application
 
 
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
     app.include_router(proxy_router)
+    register_proxy_routes(proxy_router, settings)
     app.include_router(admin_router)
     register_exception_handlers(app)
     if settings.otel_endpoint:

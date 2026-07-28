@@ -35,6 +35,23 @@ def test_proxy_rejects_methods_not_supported_by_route_config(client, settings):
     assert response.status_code == 405
     assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
 
+
+def test_proxy_routes_are_registered_from_route_config(client):
+    route_paths = {route.path for route in client.app.routes if getattr(route, "path", "").startswith("/api/v1/")}
+
+    assert "/api/v1/auth" in route_paths
+    assert "/api/v1/transactions" in route_paths
+
+
+def test_ready_reuses_cached_downstream_probe_results(client, monkeypatch):
+    monkeypatch.setenv("PESAGUARD_AUTH_SERVICE_URL", "https://auth.example.com")
+    client.app.state.service_client.request = AsyncMock(return_value=type("Response", (), {"status_code": 200}))
+
+    assert client.get("/ready").status_code == 200
+    assert client.get("/ready").status_code == 200
+    assert client.app.state.service_client.request.await_count == 1
+
+
 def test_metrics_exposes_prometheus_data(client):
     response = client.get("/metrics")
     assert response.status_code == 200

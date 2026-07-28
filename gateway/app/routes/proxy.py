@@ -11,10 +11,8 @@ from app.exceptions.handlers import GatewayError
 from app.metrics import UPSTREAM_LATENCY, UPSTREAM_REQUESTS, UPSTREAM_RETRIES
 
 router = APIRouter(prefix="/api/v1", tags=["Gateway"])
-SERVICE_PREFIXES = ("auth", "organizations", "merchants", "payments", "transactions", "reconciliation", "notifications", "reports", "audit")
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "host"}
 SENSITIVE_HEADERS = {"authorization", "x-api-key", "x-authenticated-subject", "x-authenticated-scopes"}
-UPSTREAM_PATHS = {service: f"/api/v1/{service}" for service in SERVICE_PREFIXES}
 def _required_scope(service: str, method: str) -> str:
     action = "read" if method in {"GET", "HEAD", "OPTIONS"} else "write"
     return f"{service}:{action}"
@@ -43,7 +41,8 @@ async def forward(service: str, path: str, request: Request) -> Response:
     if principal:
         headers["X-Authenticated-Subject"] = principal.subject
         headers["X-Authenticated-Scopes"] = " ".join(sorted(principal.scopes))
-    upstream_path = UPSTREAM_PATHS[service]
+    prefix = settings.path_prefix_for(service) or "/api/v1"
+    upstream_path = f"{prefix}/{service}" if prefix == "/api/v1" else f"{prefix}"
     url = f"{upstream}{upstream_path}/{path}" if path else f"{upstream}{upstream_path}"
     body = await request.body()
     started = time.perf_counter()
@@ -86,7 +85,7 @@ async def forward(service: str, path: str, request: Request) -> Response:
 
 
 async def proxy(service: str, request: Request, path: str = "") -> Response:
-    if service not in SERVICE_PREFIXES:
+    if not request.app.state.settings.route_config or service not in request.app.state.settings.route_services():
         raise GatewayError(404, "SERVICE_NOT_FOUND", "The requested API service does not exist")
     principal = getattr(request.state, "principal", None)
     is_public_auth = (request.method, request.url.path) in {
@@ -102,6 +101,18 @@ async def proxy(service: str, request: Request, path: str = "") -> Response:
     return await forward(service, path, request)
 
 
-for _method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
-    router.add_api_route("/{service}", proxy, methods=[_method], operation_id=f"proxy_{_method.lower()}_service")
-    router.add_api_route("/{service}/{path:path}", proxy, methods=[_method], operation_id=f"proxy_{_method.lower()}_service_path")
+def register_proxy_routes(router: APIRouter, settings) -> None:
+    for service in settings.route_services():
+        for _method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
+            router.add_api_route(
+                f"/{service}",
+                proxy,
+                methods=[_method],
+                operation_id=f"proxy_{_method.lower()}_{service}",
+            )
+            router.add_api_route(
+                f"/{service}/{{path:path}}",
+                proxy,
+                methods=[_method],
+                operation_id=f"proxy_{_method.lower()}_{service}_path",
+            )
