@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     upstream_max_retries: int = Field(default=2, ge=0, le=5)
     upstream_failure_threshold: int = Field(default=5, ge=1, le=100)
     upstream_circuit_reset_seconds: int = Field(default=30, ge=1, le=3600)
+    service_health_cache_seconds: int = Field(default=15, ge=0, le=300)
     route_config_path: Path | None = None
     route_config: RouteConfig | None = None
 

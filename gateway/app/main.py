@@ -55,9 +55,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SecurityMiddleware)
     # Starlette executes the most recently added middleware first.
     app.add_middleware(RequestContextMiddleware)
+    register_proxy_routes(proxy_router, settings)
     app.include_router(health_router)
     app.include_router(proxy_router)
-    register_proxy_routes(proxy_router, settings)
     app.include_router(admin_router)
     register_exception_handlers(app)
     if settings.otel_endpoint:

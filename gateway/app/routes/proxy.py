@@ -41,8 +41,11 @@ async def forward(service: str, path: str, request: Request) -> Response:
     if principal:
         headers["X-Authenticated-Subject"] = principal.subject
         headers["X-Authenticated-Scopes"] = " ".join(sorted(principal.scopes))
-    prefix = settings.path_prefix_for(service) or "/api/v1"
-    upstream_path = f"{prefix}/{service}" if prefix == "/api/v1" else f"{prefix}"
+    prefix = settings.path_prefix_for(service)
+    if "{service}" in prefix:
+        upstream_path = prefix.format(service=service)
+    else:
+        upstream_path = f"{prefix}/{service}"
     url = f"{upstream}{upstream_path}/{path}" if path else f"{upstream}{upstream_path}"
     body = await request.body()
     started = time.perf_counter()
@@ -102,8 +105,13 @@ async def proxy(service: str, request: Request, path: str = "") -> Response:
 
 
 def register_proxy_routes(router: APIRouter, settings) -> None:
+    if not settings.route_config:
+        return
     for service in settings.route_services():
-        for _method in ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
+        methods = list(settings.supported_methods_for(service) or [])
+        if "OPTIONS" not in methods:
+            methods.append("OPTIONS")
+        for _method in methods:
             router.add_api_route(
                 f"/{service}",
                 proxy,

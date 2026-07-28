@@ -43,6 +43,24 @@ def test_proxy_routes_are_registered_from_route_config(client):
     assert "/api/v1/transactions" in route_paths
 
 
+def test_proxy_uses_route_config_path_prefix_for_upstream_url(client, settings, monkeypatch):
+    monkeypatch.setenv("PESAGUARD_AUTH_SERVICE_URL", "https://auth.example.com")
+    client.app.state.service_client.request = AsyncMock(return_value=type("Response", (), {"status_code": 200, "content": b"ok", "headers": {}}))
+    token = issue_development_token("test", settings, ["auth:write"])
+
+    response = client.post(
+        "/api/v1/auth/login",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"scope": "test"},
+    )
+
+    assert response.status_code == 200
+    service_request = client.app.state.service_client.request
+    assert service_request.await_count == 1
+    assert service_request.await_args.args[0] == "POST"
+    assert service_request.await_args.args[1] == "https://auth.example.com/api/v1/auth/login"
+
+
 def test_ready_reuses_cached_downstream_probe_results(client, monkeypatch):
     monkeypatch.setenv("PESAGUARD_AUTH_SERVICE_URL", "https://auth.example.com")
     client.app.state.service_client.request = AsyncMock(return_value=type("Response", (), {"status_code": 200}))
