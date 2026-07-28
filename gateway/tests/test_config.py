@@ -3,10 +3,12 @@ from pathlib import Path
 import tempfile
 
 import pytest
+from fastapi import APIRouter
 from pydantic import ValidationError
 
 from app.config.routes import RouteConfig
 from app.config.settings import Settings
+from app.routes.proxy import register_proxy_routes
 
 
 def test_production_requires_strong_secret():
@@ -65,3 +67,32 @@ def test_route_config_rejects_invalid_env_var_names(tmp_path):
 
     with pytest.raises(ValidationError):
         RouteConfig.load(config_path)
+
+
+def test_route_config_supports_custom_gateway_paths(tmp_path):
+    config_path = tmp_path / "routes.yaml"
+    config_path.write_text(
+        "version: v1\nservices:\n  auth:\n    env_var: PESAGUARD_AUTH_SERVICE_URL\n    gateway_path: /identity/auth\n    path_prefix: /internal/{service}\n    health_path: /health\n    health_method: GET\n    methods: [GET, POST]\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(environment="test", allowed_hosts=["testserver"], route_config_path=config_path)
+
+    assert settings.gateway_path_for("auth") == "/identity/auth"
+    assert settings.path_prefix_for("auth") == "/internal/{service}"
+
+
+def test_proxy_routes_register_from_configured_gateway_paths(tmp_path):
+    config_path = tmp_path / "routes.yaml"
+    config_path.write_text(
+        "version: v1\nservices:\n  auth:\n    env_var: PESAGUARD_AUTH_SERVICE_URL\n    gateway_path: /identity/auth\n    path_prefix: /internal/{service}\n    health_path: /health\n    health_method: GET\n    methods: [GET, POST]\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(environment="test", allowed_hosts=["testserver"], route_config_path=config_path)
+    router = APIRouter(prefix="/api/v1")
+    register_proxy_routes(router, settings)
+
+    route_paths = {route.path for route in router.routes}
+    assert "/api/v1/identity/auth" in route_paths
+    assert "/api/v1/identity/auth/{path:path}" in route_paths

@@ -5,8 +5,10 @@ import asyncio
 import logging
 from typing import Any
 
-import httpx
 from httpx import AsyncClient, HTTPStatusError, RequestError, Response, TimeoutException
+
+
+DEFAULT_RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
 
 
 class ServiceClientError(Exception):
@@ -41,7 +43,7 @@ class ServiceClient:
         self._default_timeout = default_timeout
         self._max_retries = max_retries
         self._retry_backoff_seconds = retry_backoff_seconds
-        self._retry_statuses = retry_statuses or {502, 503, 504}
+        self._retry_statuses = frozenset(retry_statuses or DEFAULT_RETRYABLE_STATUS_CODES)
         self._logger = logging.getLogger("pesaguard.gateway.service_client")
 
     def _build_url(self, path: str) -> str:
@@ -57,14 +59,18 @@ class ServiceClient:
     async def request(self, method: str, path: str, *, headers: dict[str, str] | None = None,
                       params: dict[str, Any] | None = None, json: Any | None = None,
                       content: Any | None = None, timeout: float | None = None,
-                      raise_for_status: bool = True, **kwargs: Any) -> Response:
+                      raise_for_status: bool = True, trace_id: str | None = None, **kwargs: Any) -> Response:
         """Send an HTTP request to the configured service endpoint."""
         if json is not None and content is not None:
             raise ValueError("Provide either json or content, not both.")
 
         url = self._build_url(path)
         request_timeout = timeout if timeout is not None else self._default_timeout
-        headers = headers or {}
+        effective_headers = dict(headers or {})
+        if trace_id:
+            effective_headers.setdefault("X-Trace-ID", trace_id)
+            effective_headers.setdefault("X-Correlation-ID", trace_id)
+        effective_headers.setdefault("X-Request-Client", "pesaguard-gateway")
         attempt = 0
         last_error: ServiceClientError | None = None
 
@@ -74,7 +80,7 @@ class ServiceClient:
                 response = await self._client.request(
                     method,
                     url,
-                    headers=headers,
+                    headers=effective_headers,
                     params=params,
                     json=json,
                     content=content,
@@ -85,38 +91,25 @@ class ServiceClient:
                     response.raise_for_status()
                 return response
             except TimeoutException as exc:
-                self._logger.warning(
-                    "service_request_timeout %s attempt=%s",
-                    url,
-                    attempt,
-                    exc_info=exc,
-                )
+                self._logger.warning("service_request_timeout %s attempt=%s", url, attempt, exc_info=exc)
                 last_error = ServiceClientTimeout(str(exc))
                 if attempt > self._max_retries:
                     raise last_error from exc
             except HTTPStatusError as exc:
                 status_code = exc.response.status_code
-                self._logger.warning(
-                    "service_request_http_error %s status=%s attempt=%s",
-                    url,
-                    status_code,
-                    attempt,
-                )
+                self._logger.warning("service_request_http_error %s status=%s attempt=%s", url, status_code, attempt)
                 if status_code in self._retry_statuses and attempt <= self._max_retries:
-                    await asyncio.sleep(self._retry_backoff_seconds * (2 ** (attempt - 1)))
+                    backoff = self._retry_backoff_seconds * (2 ** (attempt - 1))
+                    await asyncio.sleep(backoff)
                     continue
                 raise ServiceClientResponseError(status_code, exc.response.text) from exc
             except RequestError as exc:
-                self._logger.warning(
-                    "service_request_connection_error %s attempt=%s",
-                    url,
-                    attempt,
-                    exc_info=exc,
-                )
+                self._logger.warning("service_request_connection_error %s attempt=%s", url, attempt, exc_info=exc)
                 last_error = ServiceClientConnectionError(str(exc))
                 if attempt > self._max_retries:
                     raise last_error from exc
-                await asyncio.sleep(self._retry_backoff_seconds * (2 ** (attempt - 1)))
+                backoff = self._retry_backoff_seconds * (2 ** (attempt - 1))
+                await asyncio.sleep(backoff)
 
         raise last_error or ServiceClientError("service request failed unexpectedly")
 

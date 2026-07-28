@@ -1,29 +1,28 @@
 """Unauthenticated probe endpoints for load balancers and orchestrators."""
-import time
 from typing import Any
 
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from app.constants import HEALTH_PATH, LIVE_PATH, METRICS_PATH, READY_PATH
+from app.health import ReadyProbeCache, collect_service_dependencies
+from app.health.probes import status_summary
+
 router = APIRouter(tags=["Operations"])
 
 
-def _probe_cache_key(service: str, settings: Any) -> str:
-    return f"{settings.environment}:{settings.version}:{service}"
-
-
-@router.get("/health")
+@router.get(HEALTH_PATH)
 async def health(request: Request) -> dict[str, Any]:
     return {"status": "ok", "service": "gateway", "version": request.app.state.settings.version}
 
 
-@router.get("/live")
+@router.get(LIVE_PATH)
 async def live() -> dict[str, str]:
     return {"status": "alive"}
 
 
-@router.get("/ready")
+@router.get(READY_PATH)
 async def ready(request: Request) -> JSONResponse:
     settings = request.app.state.settings
     dependencies: dict[str, str] = {}
@@ -60,61 +59,28 @@ async def ready(request: Request) -> JSONResponse:
     if settings.route_config:
         cache = getattr(request.app.state, "ready_probe_cache", None)
         if cache is None:
-            cache = {}
+            cache = ReadyProbeCache()
             request.app.state.ready_probe_cache = cache
 
-        now = time.monotonic()
-        ttl = settings.service_health_cache_seconds
-        def _status_is_healthy(status_value: str) -> bool:
-            if status_value == "ok":
-                return True
-            if status_value == "not_discovered":
-                return settings.environment != "production"
-            if status_value.startswith("unhealthy:") or status_value == "unavailable":
-                return False
-            return False
+        service_dependencies, healthy_dependencies = await collect_service_dependencies(request, settings, cache)
+        dependencies.update(service_dependencies)
+        healthy = healthy and healthy_dependencies
 
-        for service in settings.route_services():
-            cache_key = _probe_cache_key(service, settings)
-            cached_item = cache.get(cache_key)
-            if cached_item is not None:
-                status_value, timestamp = cached_item
-                if ttl > 0 and now - timestamp < ttl:
-                    dependencies[f"service:{service}"] = status_value
-                    if not _status_is_healthy(status_value):
-                        healthy = False
-                    continue
-
-            upstream = settings.upstream_for(service)
-            if not upstream:
-                dependencies[f"service:{service}"] = "not_discovered"
-                if settings.environment == "production":
-                    healthy = False
-                cache[cache_key] = (dependencies[f"service:{service}"], now)
-                continue
-            try:
-                health_response = await request.app.state.service_client.request(
-                    settings.service_health_method(service),
-                    f"{upstream}{settings.service_health_path(service)}",
-                    raise_for_status=False,
-                    timeout=settings.upstream_timeout_seconds,
-                )
-                if 200 <= health_response.status_code < 300:
-                    dependencies[f"service:{service}"] = "ok"
-                    cache[cache_key] = ("ok", now)
-                else:
-                    dependencies[f"service:{service}"] = f"unhealthy:{health_response.status_code}"
-                    cache[cache_key] = (dependencies[f"service:{service}"], now)
-                    healthy = False
-            except Exception:
-                dependencies[f"service:{service}"] = "unavailable"
-                cache[cache_key] = (dependencies[f"service:{service}"], now)
-                healthy = False
-
-    return JSONResponse(status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
-                        content={"status": "ready" if healthy else "not_ready", "dependencies": dependencies})
+    dependency_summary = {
+        name: value if isinstance(value, str) else {"status": status_summary(value["status"]), "detail": value["detail"]}
+        for name, value in dependencies.items()
+    }
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "status": "ready" if healthy else "not_ready",
+            "dependencies": dependency_summary,
+            "environment": settings.environment,
+            "version": settings.version,
+        },
+    )
 
 
-@router.get("/metrics", include_in_schema=False)
+@router.get(METRICS_PATH, include_in_schema=False)
 async def metrics() -> Response:
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -23,7 +22,7 @@ async def test_request_builds_url_and_returns_response():
     client.request.assert_awaited_once_with(
         "GET",
         "https://api.example.com/v1/resource",
-        headers={},
+        headers={"X-Request-Client": "pesaguard-gateway"},
         params=None,
         json=None,
         content=None,
@@ -98,6 +97,20 @@ async def test_request_retries_on_request_error_then_raises_when_exhausted():
 
 
 @pytest.mark.asyncio
+async def test_request_sets_trace_headers_when_trace_id_provided():
+    client = AsyncMock(spec=AsyncClient)
+    response = Response(200, request=Request("GET", "https://api.example.com/resource"), content=b"ok")
+    client.request.return_value = response
+    service = ServiceClient(client, "https://api.example.com")
+
+    await service.get("resource", trace_id="trace-123")
+
+    client.request.assert_awaited_once()
+    assert client.request.await_args.kwargs["headers"]["X-Trace-ID"] == "trace-123"
+    assert client.request.await_args.kwargs["headers"]["X-Correlation-ID"] == "trace-123"
+
+
+@pytest.mark.asyncio
 async def test_request_raises_timeout_after_retries():
     client = AsyncMock(spec=AsyncClient)
     client.request.side_effect = TimeoutException("timeout")
@@ -108,3 +121,15 @@ async def test_request_raises_timeout_after_retries():
         await service.get("resource")
 
     assert client.request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_request_sets_gateway_identity_header():
+    client = AsyncMock(spec=AsyncClient)
+    response = Response(200, request=Request("GET", "https://api.example.com/resource"), content=b"ok")
+    client.request.return_value = response
+    service = ServiceClient(client, "https://api.example.com")
+
+    await service.get("resource")
+
+    assert client.request.await_args.kwargs["headers"]["X-Request-Client"] == "pesaguard-gateway"

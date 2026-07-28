@@ -149,6 +149,11 @@ class Settings(BaseSettings):
             return self.route_config.path_prefix_for(service)
         return None
 
+    def gateway_path_for(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.gateway_path_for(service)
+        return None
+
     def upstream_for(self, service: str) -> str | None:
         env_var = self.service_env_var(service)
         if env_var:

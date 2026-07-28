@@ -1,4 +1,7 @@
 """Consistent RFC-inspired API errors without leaking implementation details."""
+from __future__ import annotations
+
+from http import HTTPStatus
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -6,39 +9,104 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.exceptions.models import GatewayErrorCode, GatewayErrorResponse, ProblemDetails
+
 
 class GatewayError(Exception):
-    def __init__(self, status_code: int, code: str, message: str, details: Any = None) -> None:
-        self.status_code, self.code, self.message, self.details = status_code, code, message, details
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        details: Any = None,
+        type_: str | None = None,
+        instance: str | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.code = GatewayErrorCode(code).value if code in GatewayErrorCode.__members__ else code
+        self.message = message
+        self.details = details
+        self.type = type_
+        self.instance = instance
+
+
+def build_problem_details(
+    request: Request,
+    status_code: int,
+    code: str,
+    detail: str,
+    errors: Any | None = None,
+    type_: str | None = None,
+    instance: str | None = None,
+    **extensions: Any,
+) -> ProblemDetails:
+    title = HTTPStatus(status_code).phrase if status_code in HTTPStatus._value2member_map_ else code.replace("_", " ").title()
+    return ProblemDetails.from_exception(
+        status=status_code,
+        code=code,
+        title=title,
+        detail=detail,
+        request_id=getattr(request.state, "request_id", None),
+        instance=instance,
+        errors=errors,
+        type_=type_,
+        **extensions,
+    )
 
 
 def error_body(request: Request, code: str, message: str, details: Any = None) -> dict[str, Any]:
-    error: dict[str, Any] = {"code": code, "message": message, "request_id": getattr(request.state, "request_id", None)}
-    if details is not None:
-        error["details"] = details
-    return {"error": error}
+    return GatewayErrorResponse(error=build_problem_details(request, HTTPStatus.INTERNAL_SERVER_ERROR, code, message, details)).model_dump()
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(GatewayError)
     async def gateway_error(request: Request, exc: GatewayError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content=error_body(request, exc.code, exc.message, exc.details))
+        problem = build_problem_details(
+            request,
+            exc.status_code,
+            exc.code,
+            exc.message,
+            errors=exc.details,
+            type_=exc.type,
+            instance=exc.instance,
+        )
+        return JSONResponse(status_code=exc.status_code, content=GatewayErrorResponse(error=problem).model_dump())
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-        return JSONResponse(status_code=422, content=error_body(request, "VALIDATION_ERROR", "Request validation failed", exc.errors()))
+        problem = build_problem_details(
+            request,
+            422,
+            GatewayErrorCode.VALIDATION_ERROR.value,
+            "Request validation failed",
+            errors=exc.errors(),
+            type_="about:blank#unprocessable_entity",
+            path=getattr(request, "url", None).path if getattr(request, "url", None) else None,
+        )
+        return JSONResponse(status_code=422, content=GatewayErrorResponse(error=problem).model_dump())
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         if exc.status_code == 404:
-            code = "NOT_FOUND"
+            code = GatewayErrorCode.NOT_FOUND.value
         elif exc.status_code == 405:
-            code = "METHOD_NOT_ALLOWED"
+            code = GatewayErrorCode.METHOD_NOT_ALLOWED.value
         else:
-            code = "HTTP_ERROR"
-        return JSONResponse(status_code=exc.status_code, content=error_body(request, code, str(exc.detail)))
+            code = GatewayErrorCode.HTTP_ERROR.value
+        problem = build_problem_details(request, exc.status_code, code, str(exc.detail), type_="about:blank#http_error")
+        return JSONResponse(status_code=exc.status_code, content=GatewayErrorResponse(error=problem).model_dump())
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
-        request.app.state.logger.exception("unhandled_exception", exc_info=exc)
-        return JSONResponse(status_code=500, content=error_body(request, "INTERNAL_ERROR", "An unexpected error occurred"))
+        logger = getattr(request.app.state, "logger", None)
+        if logger is not None:
+            logger.exception("unhandled_exception", exc_info=exc)
+        problem = build_problem_details(
+            request,
+            500,
+            GatewayErrorCode.INTERNAL_ERROR.value,
+            "An unexpected error occurred",
+            type_="about:blank#internal_error",
+            errors={"exception": exc.__class__.__name__},
+        )
+        return JSONResponse(status_code=500, content=GatewayErrorResponse(error=problem).model_dump())

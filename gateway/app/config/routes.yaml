@@ -54,3 +54,31 @@ services:
     health_path: /health
     health_method: GET
     methods: [GET, POST]
+  - name: customers
+    env_var: PESAGUARD_CUSTOMERS_SERVICE_URL
+    gateway_path: /customers
+    path_prefix: /api/v1/{service}
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: branches
+    env_var: PESAGUARD_BRANCHES_SERVICE_URL
+    gateway_path: /branches
+    path_prefix: /api/v1/{service}
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: billing
+    env_var: PESAGUARD_BILLING_SERVICE_URL
+    gateway_path: /billing
+    path_prefix: /api/v1/{service}
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: files
+    env_var: PESAGUARD_FILES_SERVICE_URL
+    gateway_path: /files
+    path_prefix: /api/v1/{service}
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]

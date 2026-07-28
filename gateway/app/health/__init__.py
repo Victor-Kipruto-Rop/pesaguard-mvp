@@ -1,3 +1,3 @@
-from app.routes.health import router
+from app.health.probes import ReadyProbeCache, collect_service_dependencies, probe_service_health
 
-__all__ = ["router"]
+__all__ = ["ReadyProbeCache", "collect_service_dependencies", "probe_service_health"]

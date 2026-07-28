@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.constants import DEFAULT_API_PREFIX, DEFAULT_HTTP_METHODS
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
@@ -18,8 +19,9 @@ class ServiceDefinition(BaseModel):
     env_var: str
     health_path: str = "/health"
     health_method: str = "GET"
-    methods: list[str] = Field(default_factory=lambda: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
-    path_prefix: str = Field(default="/api/v1")
+    methods: list[str] = Field(default_factory=lambda: list(DEFAULT_HTTP_METHODS))
+    path_prefix: str = Field(default=DEFAULT_API_PREFIX)
+    gateway_path: str | None = None
 
     model_config = {
         "extra": "forbid",
@@ -76,6 +78,15 @@ class ServiceDefinition(BaseModel):
     def validate_path_prefix(cls, value: str) -> str:
         if not isinstance(value, str) or not value.startswith("/"):
             raise ValueError("path_prefix must be an absolute path starting with '/'")
+        return value.rstrip("/") or "/"
+
+    @field_validator("gateway_path")
+    @classmethod
+    def validate_gateway_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.startswith("/"):
+            raise ValueError("gateway_path must be an absolute path starting with '/'")
         return value.rstrip("/") or "/"
 
 
@@ -167,6 +178,12 @@ class RouteConfig(BaseModel):
 
     def path_prefix_for(self, service: str) -> str:
         return self.service_definition(service).path_prefix
+
+    def gateway_path_for(self, service: str) -> str:
+        configured_path = self.service_definition(service).gateway_path
+        if configured_path:
+            return configured_path.format(service=service) if "{service}" in configured_path else configured_path
+        return f"/{service}"
 
     def service_url_from_environment(self, service: str, env: dict[str, str] | None = None) -> str | None:
         env = env or __import__("os").environ
