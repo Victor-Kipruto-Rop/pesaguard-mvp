@@ -1,8 +1,15 @@
 """Typed, fail-fast configuration for the gateway."""
+from __future__ import annotations
+
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
+
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.config.routes import RouteConfig
 
 
 class Settings(BaseSettings):
@@ -57,6 +64,8 @@ class Settings(BaseSettings):
     upstream_max_retries: int = Field(default=2, ge=0, le=5)
     upstream_failure_threshold: int = Field(default=5, ge=1, le=100)
     upstream_circuit_reset_seconds: int = Field(default=30, ge=1, le=3600)
+    route_config_path: Path | None = None
+    route_config: RouteConfig | None = None
 
     @field_validator("environment")
     @classmethod
@@ -107,9 +116,44 @@ class Settings(BaseSettings):
                 raise ValueError("mTLS requires a CA bundle, client certificate, and client key")
         return self
 
+    @model_validator(mode="after")
+    def load_route_config(self) -> "Settings":
+        if self.route_config is None:
+            config_path = self.route_config_path or Path(__file__).parent / "routes.yaml"
+            self.route_config = RouteConfig.load(config_path)
+        return self
+
+    def service_env_var(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.env_var_for(service)
+        return None
+
+    def service_health_path(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.health_path_for(service)
+        return None
+
+    def service_health_method(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.health_method_for(service)
+        return None
+
+    def supported_methods_for(self, service: str) -> tuple[str, ...] | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.supported_methods_for(service)
+        return None
+
     def upstream_for(self, service: str) -> str | None:
+        env_var = self.service_env_var(service)
+        if env_var:
+            value = os.environ.get(env_var)
+            if value:
+                return value.rstrip("/")
         value = getattr(self, f"{service}_service_url", None)
         return str(value).rstrip("/") if value else None
+
+    def route_services(self) -> tuple[str, ...]:
+        return tuple(self.route_config.service_names()) if self.route_config else ()
 
 
 @lru_cache

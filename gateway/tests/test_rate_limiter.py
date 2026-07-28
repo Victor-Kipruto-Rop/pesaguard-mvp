@@ -17,7 +17,7 @@ def test_local_token_bucket_refuses_requests_after_burst():
 async def test_rate_limiter_uses_redis_cache_eval_when_available():
     redis_cache = AsyncMock()
     redis_cache.eval.return_value = [1, 4]
-    settings = Settings(environment="test", rate_limit_fail_open=True)
+    settings = Settings(environment="test", rate_limit_requests=1000, rate_limit_window_seconds=60, rate_limit_fail_open=True)
     state = SimpleNamespace(settings=settings, redis=None, redis_cache=redis_cache, logger=SimpleNamespace(warning=print))
     request = SimpleNamespace(app=SimpleNamespace(state=state), url=SimpleNamespace(path="/api/v1/test"))
 

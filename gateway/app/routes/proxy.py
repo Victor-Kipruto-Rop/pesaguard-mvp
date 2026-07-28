@@ -2,9 +2,10 @@
 import asyncio
 import time
 
-import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+
+from app.clients.service_client import ServiceClientConnectionError, ServiceClientTimeout
 
 from app.exceptions.handlers import GatewayError
 from app.metrics import UPSTREAM_LATENCY, UPSTREAM_REQUESTS, UPSTREAM_RETRIES
@@ -43,18 +44,27 @@ async def forward(service: str, path: str, request: Request) -> Response:
     attempts = request.app.state.settings.upstream_max_retries if _is_retryable(request.method, headers) else 0
     try:
         for attempt in range(attempts + 1):
-            upstream_response = await request.app.state.http.request(
-                request.method, url, params=request.query_params, content=body, headers=headers
+            upstream_response = await request.app.state.service_client.request(
+                request.method,
+                url,
+                params=request.query_params,
+                content=body,
+                headers=headers,
+                raise_for_status=False,
             )
             if upstream_response.status_code not in {502, 503, 504} or attempt == attempts:
                 break
             UPSTREAM_RETRIES.labels(service).inc()
             await asyncio.sleep(0.05 * (2 ** attempt))
-    except httpx.TimeoutException as exc:
+    except ServiceClientTimeout as exc:
         breaker.failure(service)
         UPSTREAM_REQUESTS.labels(service, "timeout").inc()
         raise GatewayError(504, "UPSTREAM_TIMEOUT", f"{service} service timed out") from exc
-    except httpx.HTTPError as exc:
+    except ServiceClientConnectionError as exc:
+        breaker.failure(service)
+        UPSTREAM_REQUESTS.labels(service, "unavailable").inc()
+        raise GatewayError(502, "UPSTREAM_UNAVAILABLE", f"{service} service could not be reached") from exc
+    except Exception as exc:
         breaker.failure(service)
         UPSTREAM_REQUESTS.labels(service, "unavailable").inc()
         raise GatewayError(502, "UPSTREAM_UNAVAILABLE", f"{service} service could not be reached") from exc

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.cache import RedisCache
+from app.clients import ServiceClient
 from app.config.settings import get_settings
 from app.core.resilience import CircuitBreaker
 from app.telemetry import configure_tracing
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
     if settings.downstream_client_certificate and settings.downstream_client_key:
         client_options["cert"] = (str(settings.downstream_client_certificate), str(settings.downstream_client_key))
     app.state.http = httpx.AsyncClient(**client_options)
+    app.state.service_client = ServiceClient(app.state.http, base_url="")
     app.state.redis = None
     app.state.redis_cache: RedisCache | None = None
     app.state.jwks_cache = {"keys": {}, "expires_at": 0.0}

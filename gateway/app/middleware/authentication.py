@@ -27,8 +27,12 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         try:
             authorization = request.headers.get("authorization", "")
             if authorization.lower().startswith("bearer "):
-                request.state.principal = await verify_token(authorization[7:].strip(), request.app.state.settings,
-                                                             request.app.state.http, request.app.state.jwks_cache)
+                request.state.principal = await verify_token(
+                    authorization[7:].strip(),
+                    request.app.state.settings,
+                    request.app.state.service_client,
+                    request.app.state.jwks_cache,
+                )
             elif api_key := request.headers.get("x-api-key"):
                 request.state.principal = verify_api_key(api_key, request.app.state.settings)
             else:

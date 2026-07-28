@@ -64,6 +64,10 @@ class RedisCache:
         """Set a value only if the key does not already exist."""
         return bool(await self._redis.set(self.key(name), value, nx=True, ex=ttl_seconds))
 
+    async def eval(self, script: str, num_keys: int, *keys_and_args: Any) -> Any:
+        """Execute a Lua script in Redis and return the result."""
+        return await self._redis.eval(script, num_keys, *keys_and_args)
+
     async def get_or_set_json(self, name: str, value: JsonValue | Callable[[], JsonValue], ttl_seconds: int) -> JsonValue:
         """Return existing JSON from cache or compute, store, and return a new value."""
         existing = await self.get_json(name)

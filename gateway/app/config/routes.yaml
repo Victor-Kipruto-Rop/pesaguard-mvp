@@ -1,8 +1,32 @@
 version: v1
 services:
-  auth: PESAGUARD_AUTH_SERVICE_URL
-  organizations: PESAGUARD_ORGANIZATIONS_SERVICE_URL
-  merchants: PESAGUARD_MERCHANTS_SERVICE_URL
-  payments: PESAGUARD_PAYMENTS_SERVICE_URL
-  reconciliation: PESAGUARD_RECONCILIATION_SERVICE_URL
-  notifications: PESAGUARD_NOTIFICATIONS_SERVICE_URL
+  - name: auth
+    env_var: PESAGUARD_AUTH_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
+  - name: organizations
+    env_var: PESAGUARD_ORGANIZATIONS_SERVICE_URL
+    health_path: /ready
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: merchants
+    env_var: PESAGUARD_MERCHANTS_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  - name: payments
+    env_var: PESAGUARD_PAYMENTS_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
+  - name: reconciliation
+    env_var: PESAGUARD_RECONCILIATION_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
+  - name: notifications
+    env_var: PESAGUARD_NOTIFICATIONS_SERVICE_URL
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
