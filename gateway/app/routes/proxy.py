@@ -25,7 +25,13 @@ def _is_retryable(method: str, headers: dict[str, str]) -> bool:
 
 
 async def forward(service: str, path: str, request: Request) -> Response:
-    upstream = request.app.state.settings.upstream_for(service)
+    settings = request.app.state.settings
+    if not settings.route_config or service not in settings.route_services():
+        raise GatewayError(404, "SERVICE_NOT_FOUND", "The requested API service does not exist")
+    supported_methods = settings.supported_methods_for(service)
+    if supported_methods and request.method not in supported_methods:
+        raise GatewayError(405, "METHOD_NOT_ALLOWED", f"{service} service does not support {request.method}")
+    upstream = settings.upstream_for(service)
     if not upstream:
         raise GatewayError(503, "SERVICE_UNAVAILABLE", f"{service} service is not configured")
     breaker = request.app.state.circuit_breaker

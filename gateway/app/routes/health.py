@@ -20,6 +20,7 @@ async def live() -> dict[str, str]:
 
 @router.get("/ready")
 async def ready(request: Request) -> JSONResponse:
+    settings = request.app.state.settings
     dependencies: dict[str, str] = {}
     healthy = True
     if request.app.state.redis:
@@ -29,14 +30,14 @@ async def ready(request: Request) -> JSONResponse:
             dependencies["rate_limit"] = "redis"
         except Exception:
             dependencies["redis"] = "unavailable"
-            if request.app.state.settings.rate_limit_fail_open or request.app.state.settings.environment != "production":
+            if settings.rate_limit_fail_open or settings.environment != "production":
                 dependencies["rate_limit"] = "local_fallback"
             else:
                 dependencies["rate_limit"] = "unavailable"
                 healthy = False
     else:
         dependencies["redis"] = "not_configured"
-        if request.app.state.settings.environment == "production" and not request.app.state.settings.rate_limit_fail_open:
+        if settings.environment == "production" and not settings.rate_limit_fail_open:
             dependencies["rate_limit"] = "unavailable"
             healthy = False
         else:
@@ -50,6 +51,31 @@ async def ready(request: Request) -> JSONResponse:
         except Exception:
             dependencies["database"] = "unavailable"
             healthy = False
+
+    if settings.route_config:
+        for service in settings.route_services():
+            upstream = settings.upstream_for(service)
+            if not upstream:
+                dependencies[f"service:{service}"] = "not_discovered"
+                if settings.environment == "production":
+                    healthy = False
+                continue
+            try:
+                health_response = await request.app.state.service_client.request(
+                    settings.service_health_method(service),
+                    f"{upstream}{settings.service_health_path(service)}",
+                    raise_for_status=False,
+                    timeout=settings.upstream_timeout_seconds,
+                )
+                if 200 <= health_response.status_code < 300:
+                    dependencies[f"service:{service}"] = "ok"
+                else:
+                    dependencies[f"service:{service}"] = f"unhealthy:{health_response.status_code}"
+                    healthy = False
+            except Exception:
+                dependencies[f"service:{service}"] = "unavailable"
+                healthy = False
+
     return JSONResponse(status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
                         content={"status": "ready" if healthy else "not_ready", "dependencies": dependencies})
 
