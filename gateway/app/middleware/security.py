@@ -7,6 +7,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.responses import error_response
+
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -24,31 +26,22 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             "denied_ips": settings.denied_ips,
         }
         if self._matches(client, settings.denied_ips) or (settings.allowed_ips and not self._matches(client, settings.allowed_ips)):
-            return JSONResponse(
-                status_code=403,
-                content={"error": {"code": "IP_NOT_ALLOWED", "message": "Client IP is not permitted"}},
-            )
+            payload = error_response("IP_NOT_ALLOWED", "Client IP is not permitted")
+            return JSONResponse(status_code=403, content=payload.model_dump())
 
         content_length = self._parse_content_length(request.headers.get("content-length"))
         if content_length is not None and content_length > settings.request_max_bytes:
-            return JSONResponse(
-                status_code=413,
-                content={"error": {"code": "PAYLOAD_TOO_LARGE", "message": "Request body exceeds limit"}},
-            )
-
+                payload = error_response("PAYLOAD_TOO_LARGE", "Request body exceeds limit")
+                return JSONResponse(status_code=413, content=payload.model_dump())
         if request.method in {"POST", "PUT", "PATCH"} and request.url.path.startswith("/api/"):
             media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             if media_type and not any(media_type == allowed or media_type.startswith(f"{allowed}/") for allowed in settings.allowed_content_types):
-                return JSONResponse(
-                    status_code=415,
-                    content={"error": {"code": "UNSUPPORTED_MEDIA_TYPE", "message": "Request content type is not allowed"}},
-                )
+                payload = error_response("UNSUPPORTED_MEDIA_TYPE", "Request content type is not allowed")
+                return JSONResponse(status_code=415, content=payload.model_dump())
             body = await request.body()
             if len(body) > settings.request_max_bytes:
-                return JSONResponse(
-                    status_code=413,
-                    content={"error": {"code": "PAYLOAD_TOO_LARGE", "message": "Request body exceeds limit"}},
-                )
+                payload = error_response("PAYLOAD_TOO_LARGE", "Request body exceeds limit")
+                return JSONResponse(status_code=413, content=payload.model_dump())
 
         response = await call_next(request)
         headers = {

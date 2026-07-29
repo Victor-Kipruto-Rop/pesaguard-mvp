@@ -1,0 +1,48 @@
+services:
+  gateway:
+    build: ../gateway
+    env_file: ../gateway/.env.example
+    environment:
+      PESAGUARD_ENVIRONMENT: production
+      PESAGUARD_REDIS_URL: redis://redis:6379/0
+      PESAGUARD_DATABASE_URL: postgresql+asyncpg://pesaguard:pesaguard@postgres:5432/pesaguard
+      PESAGUARD_TLS_ENABLED: "true"
+      PESAGUARD_TLS_CA_FILE: /etc/pesaguard/tls/ca.crt
+      PESAGUARD_TLS_CERT_FILE: /etc/pesaguard/tls/gateway.crt
+      PESAGUARD_TLS_KEY_FILE: /etc/pesaguard/tls/gateway.key
+      PESAGUARD_TLS_CLIENT_CERT_FILE: /etc/pesaguard/tls/client.crt
+      PESAGUARD_TLS_CLIENT_KEY_FILE: /etc/pesaguard/tls/client.key
+      PESAGUARD_TLS_REQUIRE_CLIENT_CERT: "true"
+    volumes:
+      - ../security/pki/bundles/docker/ca.crt:/etc/pesaguard/tls/ca.crt:ro
+      - ../security/pki/certs/gateway/gateway.crt:/etc/pesaguard/tls/gateway.crt:ro
+      - ../security/pki/private/gateway/gateway.key:/etc/pesaguard/tls/gateway.key:ro
+      - ../security/pki/clients/gateway-client/gateway-client.crt:/etc/pesaguard/tls/client.crt:ro
+      - ../security/pki/private/gateway-client/gateway-client.key:/etc/pesaguard/tls/client.key:ro
+    ports:
+      - "8443:8443"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pesaguard
+      POSTGRES_USER: pesaguard
+      POSTGRES_PASSWORD: pesaguard
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pesaguard -d pesaguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - gateway-network-policy.yaml
+  - gateway-tls-secret.yaml
+  - gateway-deployment.yaml
+  - gateway-service.yaml

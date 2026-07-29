@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -22,6 +21,8 @@ from app.constants import (
 )
 from app.exceptions.handlers import GatewayError
 from app.metrics import UPSTREAM_LATENCY, UPSTREAM_REQUESTS, UPSTREAM_RETRIES
+from app.services import RouteManager
+from app.services import RouteManager
 
 router = APIRouter(prefix=DEFAULT_API_PREFIX, tags=["Gateway"])
 
@@ -35,33 +36,18 @@ def _is_retryable(method: str, headers: dict[str, str]) -> bool:
     return method in {"GET", "HEAD", "OPTIONS", "PUT", "DELETE"} or "idempotency-key" in headers
 
 
-def _build_upstream_url(service: str, path: str, settings: Any, upstream: str) -> str:
-    prefix = settings.path_prefix_for(service) or f"/{service}"
-    if "{service}" in prefix:
-        upstream_path = prefix.format(service=service)
-    else:
-        upstream_path = f"{prefix.rstrip('/')}/{service}" if prefix != "/" else f"/{service}"
-    if path:
-        normalized_path = path.lstrip("/")
-        return f"{upstream.rstrip('/')}{upstream_path.rstrip('/')}/{normalized_path}"
-    return f"{upstream.rstrip('/')}{upstream_path.rstrip('/')}"
-
-
-def _gateway_route_path(service: str, settings: Any) -> str:
-    route_path = settings.gateway_path_for(service) or f"/{service}"
-    if route_path == "/":
-        return "/"
-    return route_path.rstrip("/") or "/"
-
-
 async def forward(service: str, path: str, request: Request) -> Response:
     settings = request.app.state.settings
-    if not settings.route_config or service not in settings.route_services():
+    route_manager = getattr(request.app.state, "route_manager", None)
+    if route_manager is None:
+        route_manager = RouteManager(settings)
+        setattr(request.app.state, "route_manager", route_manager)
+    if not route_manager.service_exists(service):
         raise GatewayError(404, "SERVICE_NOT_FOUND", "The requested API service does not exist")
     supported_methods = settings.supported_methods_for(service)
     if supported_methods and request.method not in supported_methods:
         raise GatewayError(405, "METHOD_NOT_ALLOWED", f"{service} service does not support {request.method}")
-    upstream = settings.upstream_for(service)
+    upstream = route_manager.resolve_service_url(service)
     if not upstream:
         raise GatewayError(503, "SERVICE_UNAVAILABLE", f"{service} service is not configured")
     breaker = request.app.state.circuit_breaker
@@ -87,7 +73,7 @@ async def forward(service: str, path: str, request: Request) -> Response:
         for attempt in range(attempts + 1):
             upstream_response = await request.app.state.service_client.request(
                 request.method,
-                _build_upstream_url(service, path, settings, upstream),
+                route_manager.build_upstream_url(service, path),
                 params=request.query_params,
                 content=body,
                 headers=headers,
@@ -154,12 +140,13 @@ def _proxy_handler(service: str):
 def register_proxy_routes(router: APIRouter, settings) -> None:
     if not settings.route_config:
         return
+    route_manager = RouteManager(settings)
     for service in settings.route_services():
         methods = list(settings.supported_methods_for(service) or [])
         if "OPTIONS" not in methods:
             methods.append("OPTIONS")
         proxy_with_service = _proxy_handler(service)
-        route_path = _gateway_route_path(service, settings)
+        route_path = route_manager.gateway_route(service)
         for _method in methods:
             router.add_api_route(
                 route_path,

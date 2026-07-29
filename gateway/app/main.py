@@ -14,6 +14,7 @@ from app.logging.setup import configure_logging
 from app.middleware import AuthenticationMiddleware, IdempotencyMiddleware, RateLimitMiddleware, RequestContextMiddleware, SecurityMiddleware
 from app.routes import admin_router, health_router, proxy_router
 from app.routes.proxy import register_proxy_routes
+from app.services import RouteManager
 from app.telemetry import instrument_application
 
 
@@ -33,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                   docs_url=docs_url, redoc_url=REDOC_PATH if settings.docs_enabled else None,
                   openapi_url=OPENAPI_PATH if settings.docs_enabled else None, generate_unique_id_function=operation_id)
     app.state.settings = settings
+    app.state.route_manager = RouteManager(settings)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

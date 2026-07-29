@@ -1,0 +1,10 @@
+# Local PKI and deployment artifacts
+security/pki/
+deployments/local-mtls/
+deployments/kubernetes/base/gateway-tls-secret.yaml
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
