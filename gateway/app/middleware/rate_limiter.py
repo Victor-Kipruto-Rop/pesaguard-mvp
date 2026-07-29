@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse, Response
 from app.constants import PROBE_PATHS
 from app.core.client_ip import client_ip
 from app.metrics import RATE_LIMIT_DECISIONS
+from app.responses import error_response
 
 
 SLIDING_WINDOW_SCRIPT = """
@@ -23,6 +24,9 @@ redis.call('ZADD', KEYS[1], ARGV[2], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[3]))
 return {1, tonumber(ARGV[1]) - count - 1}
 """
+
+
+RATE_LIMIT_HEADERS = ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Policy", "X-RateLimit-Reset"]
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -45,17 +49,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             allowed, remaining, backend = await self._consume(request, f"ratelimit:{identity}")
         except RateLimitUnavailable:
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"code": "RATE_LIMIT_UNAVAILABLE", "message": "Rate limiting is temporarily unavailable"}},
-            )
+            payload = error_response("RATE_LIMIT_UNAVAILABLE", "Rate limiting is temporarily unavailable")
+            return JSONResponse(status_code=503, content=payload.model_dump())
 
         if not allowed:
             RATE_LIMIT_DECISIONS.labels("denied", backend).inc()
-            retry_after = max(1, settings.rate_limit_window_seconds // max(1, settings.rate_limit_requests))
-            response = JSONResponse(
+            retry_after = self._retry_after_seconds(settings)
+            payload = error_response("RATE_LIMITED", "Too many requests")
+            return JSONResponse(
                 status_code=429,
-                content={"error": {"code": "RATE_LIMITED", "message": "Too many requests"}},
+                content=payload.model_dump(),
                 headers={
                     "Retry-After": str(retry_after),
                     "X-RateLimit-Limit": str(limit),
@@ -63,14 +66,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Policy": "sliding-window",
                 },
             )
-            return response
 
         RATE_LIMIT_DECISIONS.labels("allowed", backend).inc()
         response = await call_next(request)
-        response.headers.setdefault("X-RateLimit-Limit", str(limit))
-        response.headers.setdefault("X-RateLimit-Remaining", str(remaining))
-        response.headers.setdefault("X-RateLimit-Policy", "sliding-window")
-        response.headers.setdefault("X-RateLimit-Reset", str(int(time.time()) + settings.rate_limit_window_seconds))
+        for name, value in self._rate_limit_headers(limit, remaining, settings).items():
+            response.headers.setdefault(name, value)
         return response
 
     async def _consume(self, request: Request, key: str) -> tuple[bool, int, str]:
@@ -81,43 +81,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         redis_cache = getattr(request.app.state, "redis_cache", None)
         logger = getattr(request.app.state, "logger", None)
 
-        if redis_cache:
-            try:
-                result = await redis_cache.eval(
-                    SLIDING_WINDOW_SCRIPT,
-                    1,
-                    key,
-                    limit,
-                    now_ms,
-                    settings.rate_limit_window_seconds * 1000,
-                    f"{now_ms}:{uuid4()}",
-                )
-                return bool(int(result[0])), int(result[1]), "redis"
-            except Exception:
-                if logger:
-                    logger.warning("rate_limit_redis_unavailable")
-                if settings.environment == "production" and not settings.rate_limit_fail_open:
-                    RATE_LIMIT_DECISIONS.labels("unavailable", "redis").inc()
-                    raise RateLimitUnavailable
-        elif redis:
-            try:
-                result = await redis.eval(
-                    SLIDING_WINDOW_SCRIPT,
-                    1,
-                    key,
-                    limit,
-                    now_ms,
-                    settings.rate_limit_window_seconds * 1000,
-                    f"{now_ms}:{uuid4()}",
-                )
-                return bool(int(result[0])), int(result[1]), "redis"
-            except Exception:
-                if logger:
-                    logger.warning("rate_limit_redis_unavailable")
-                if settings.environment == "production" and not settings.rate_limit_fail_open:
-                    RATE_LIMIT_DECISIONS.labels("unavailable", "redis").inc()
-                    raise RateLimitUnavailable
+        if redis_cache is not None:
+            return await self._eval_redis(redis_cache, key, limit, now_ms, settings, logger)
+        if redis is not None:
+            return await self._eval_redis(redis, key, limit, now_ms, settings, logger)
         return (*self._consume_local(key, limit, settings.rate_limit_window_seconds), "local")
+
+    async def _eval_redis(self, backend: Any, key: str, limit: int, now_ms: int, settings: Any, logger: Any) -> tuple[bool, int, str]:
+        try:
+            result = await backend.eval(
+                SLIDING_WINDOW_SCRIPT,
+                1,
+                key,
+                limit,
+                now_ms,
+                settings.rate_limit_window_seconds * 1000,
+                f"{now_ms}:{uuid4()}",
+            )
+            return bool(int(result[0])), int(result[1]), "redis"
+        except Exception:
+            if logger:
+                logger.warning("rate_limit_redis_unavailable")
+            if settings.environment == "production" and not settings.rate_limit_fail_open:
+                RATE_LIMIT_DECISIONS.labels("unavailable", "redis").inc()
+                raise RateLimitUnavailable
+            return (*self._consume_local(key, limit, settings.rate_limit_window_seconds), "local")
 
     def _consume_local(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int]:
         now = time.monotonic()
@@ -140,11 +128,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return str(principal.subject)
         if request.headers.get("x-api-key"):
             return f"apikey:{request.headers.get('x-api-key')}"
-        return client_ip(request)
+        return getattr(request.state, "client_ip", None) or client_ip(request)
 
     @staticmethod
     def _limit(settings: Any) -> int:
         return settings.rate_limit_requests + settings.rate_limit_burst
+
+    @staticmethod
+    def _retry_after_seconds(settings: Any) -> int:
+        return max(1, settings.rate_limit_window_seconds // max(1, settings.rate_limit_requests))
+
+    @staticmethod
+    def _rate_limit_headers(limit: int, remaining: int, settings: Any) -> dict[str, str]:
+        return {
+            "X-RateLimit-Limit": str(limit),
+            "X-RateLimit-Remaining": str(remaining),
+            "X-RateLimit-Policy": "sliding-window",
+            "X-RateLimit-Reset": str(int(time.time()) + settings.rate_limit_window_seconds),
+        }
 
 
 class RateLimitUnavailable(Exception):

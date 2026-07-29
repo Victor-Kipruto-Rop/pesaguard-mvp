@@ -8,13 +8,20 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from app.constants import HEALTH_PATH, LIVE_PATH, METRICS_PATH, READY_PATH
 from app.health import ReadyProbeCache, collect_service_dependencies
 from app.health.probes import status_summary
+from app.services import GatewayServiceManager
 
 router = APIRouter(tags=["Operations"])
 
 
 @router.get(HEALTH_PATH)
 async def health(request: Request) -> dict[str, Any]:
-    return {"status": "ok", "service": "gateway", "version": request.app.state.settings.version}
+    service_manager = GatewayServiceManager(request.app.state.settings)
+    return {
+        "status": "ok",
+        "service": "gateway",
+        "version": request.app.state.settings.version,
+        "runtime": service_manager.runtime_snapshot(),
+    }
 
 
 @router.get(LIVE_PATH)
@@ -70,6 +77,7 @@ async def ready(request: Request) -> JSONResponse:
         name: value if isinstance(value, str) else {"status": status_summary(value["status"]), "detail": value["detail"]}
         for name, value in dependencies.items()
     }
+    service_manager = GatewayServiceManager(settings)
     return JSONResponse(
         status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
         content={
@@ -77,6 +85,7 @@ async def ready(request: Request) -> JSONResponse:
             "dependencies": dependency_summary,
             "environment": settings.environment,
             "version": settings.version,
+            "runtime": service_manager.runtime_snapshot(),
         },
     )
 

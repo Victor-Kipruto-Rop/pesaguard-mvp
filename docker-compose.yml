@@ -2,6 +2,10 @@ services:
   gateway:
     build: ./gateway
     env_file: ./gateway/.env.example
+    environment:
+      PESAGUARD_ENVIRONMENT: development
+      PESAGUARD_REDIS_URL: redis://redis:6379/0
+      PESAGUARD_DATABASE_URL: postgresql+asyncpg://pesaguard:pesaguard@postgres:5432/pesaguard
     ports:
       - "8000:8000"
     depends_on:
@@ -9,6 +13,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/live', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
   postgres:
     image: postgres:17-alpine
     environment:

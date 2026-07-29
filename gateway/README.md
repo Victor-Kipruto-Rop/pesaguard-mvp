@@ -26,10 +26,25 @@ Read the [security and production operations guide](docs/security.md) before dep
 
 Operational response guidance is available in the repository [gateway runbook](../docs/operations/gateway-runbook.md).
 
+## Deployment
+
+For a local container stack, run `docker compose up --build` from the repository root. The gateway service will bind to port `8000` and expect Redis and PostgreSQL to be available through the compose network.
+
+For non-development deployments:
+
+1. Copy [gateway/.env.example](.env.example) to [gateway/.env](.env) and replace secrets.
+2. Set `PESAGUARD_ENVIRONMENT=production` and disable docs with `PESAGUARD_DOCS_ENABLED=false`.
+3. Ensure Redis is reachable at `PESAGUARD_REDIS_URL` and upstream services are configured via their `PESAGUARD_*_SERVICE_URL` values.
+4. Mount secrets for mTLS and JWT verification when required.
+
 ## Verification
 
 ```bash
 pytest tests
 ```
 
-For a local container stack, run `docker compose up --build` from the repository root. It uses the committed development defaults; create `gateway/.env` from the example and use your secret-management system for any non-development deployment.
+For a containerized smoke test, run:
+
+```bash
+docker compose up --build gateway
+```

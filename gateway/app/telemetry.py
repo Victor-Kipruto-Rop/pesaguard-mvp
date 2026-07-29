@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from app.config.settings import Settings
 
+FastAPIInstrumentor = None
+
 
 def configure_tracing(settings: Settings) -> None:
     if not settings.otel_endpoint:
@@ -23,8 +25,11 @@ def configure_tracing(settings: Settings) -> None:
 
 def instrument_application(app) -> None:
     """Install ASGI and HTTP client instrumentation once during application creation."""
-    try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    except ImportError:
-        return
+    global FastAPIInstrumentor
+    if FastAPIInstrumentor is None:
+        try:
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor as Instrumentor
+        except ImportError:
+            return
+        FastAPIInstrumentor = Instrumentor
     FastAPIInstrumentor.instrument_app(app, excluded_urls="health,live,ready,metrics")

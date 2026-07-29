@@ -10,6 +10,18 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.cache import RedisCache
+from app.responses import error_response
+
+
+IDEMPOTENCY_KEY_HEADER = "idempotency-key"
+ALLOWED_RESPONSE_HEADERS = {
+    "content-type",
+    "location",
+    "cache-control",
+    "etag",
+    "x-request-id",
+    "x-correlation-id",
+}
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -17,94 +29,115 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if request.method != "POST" or not request.url.path.startswith("/api/v1/payments"):
             return await call_next(request)
 
-        token = request.headers.get("idempotency-key")
-        if not token or len(token.strip()) > 255:
-            return JSONResponse(
-                status_code=400,
-                content={"error": {"code": "IDEMPOTENCY_KEY_REQUIRED", "message": "A valid Idempotency-Key is required"}},
-            )
+        token = request.headers.get(IDEMPOTENCY_KEY_HEADER, "").strip()
+        if not token or len(token) > 255:
+            payload = error_response("IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key is required")
+            return JSONResponse(status_code=400, content=payload.model_dump())
+
+        settings = getattr(getattr(request.app, "state", None), "settings", None)
+        if settings is None:
+            payload = error_response("IDEMPOTENCY_UNAVAILABLE", "Payment processing is temporarily unavailable")
+            return JSONResponse(status_code=503, content=payload.model_dump())
 
         redis_cache: RedisCache | None = getattr(request.app.state, "redis_cache", None)
         redis = getattr(request.app.state, "redis", None)
-        settings = getattr(getattr(request.app, "state", None), "settings", None)
-        if not redis_cache and not redis or settings is None:
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"code": "IDEMPOTENCY_UNAVAILABLE", "message": "Payment processing is temporarily unavailable"}},
-            )
+        if redis_cache is None and redis is None:
+            payload = error_response("IDEMPOTENCY_UNAVAILABLE", "Payment processing is temporarily unavailable")
+            return JSONResponse(status_code=503, content=payload.model_dump())
 
         request_body = await request.body()
         body_hash = hashlib.sha256(request_body).hexdigest()
         subject = getattr(getattr(request.state, "principal", None), "subject", "anonymous")
-        key = "idempotency:" + hashlib.sha256(f"{subject}:{request.url.path}:{token.strip()}".encode()).hexdigest()
+        key = self._storage_key(subject, request.url.path, token)
 
         try:
-            cached = await (redis_cache.get_json(key) if redis_cache else self._get_json(redis, key))
+            cached = await self._load_cache(redis_cache, redis, key)
         except Exception:
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"code": "IDEMPOTENCY_UNAVAILABLE", "message": "Payment processing is temporarily unavailable"}},
-            )
+            payload = error_response("IDEMPOTENCY_UNAVAILABLE", "Payment processing is temporarily unavailable")
+            return JSONResponse(status_code=503, content=payload.model_dump())
 
         if cached:
             if cached.get("body_hash") != body_hash:
-                return JSONResponse(
-                    status_code=422,
-                    content={"error": {"code": "IDEMPOTENCY_KEY_REUSED", "message": "Idempotency-Key cannot be reused with a different request"}},
+                payload = error_response(
+                    "IDEMPOTENCY_KEY_REUSED",
+                    "Idempotency-Key cannot be reused with a different request",
                 )
-            return Response(
+                return JSONResponse(status_code=422, content=payload.model_dump())
+            response = Response(
                 cached.get("body", "").encode("utf-8"),
                 status_code=cached.get("status", 200),
                 headers={**cached.get("headers", {}), "Idempotency-Replayed": "true"},
             )
+            return response
 
         lock_key = f"{key}:lock"
-        release_lock = False
+        acquired = False
         try:
-            acquired = await (
-                redis_cache.set_if_not_exists(lock_key, "1", settings.idempotency_lock_seconds)
-                if redis_cache
-                else redis.set(lock_key, "1", nx=True, ex=settings.idempotency_lock_seconds)
-            )
+            acquired = await self._acquire_lock(redis_cache, redis, lock_key, settings.idempotency_lock_seconds)
             if not acquired:
-                return JSONResponse(
-                    status_code=409,
-                    content={"error": {"code": "IDEMPOTENCY_IN_PROGRESS", "message": "An identical payment request is in progress"}},
-                    headers={"Retry-After": "2"},
-                )
+                payload = error_response("IDEMPOTENCY_IN_PROGRESS", "An identical payment request is in progress")
+                return JSONResponse(status_code=409, content=payload.model_dump(), headers={"Retry-After": "2"})
 
             response = await call_next(request)
             if response.status_code >= 500:
-                release_lock = True
                 return response
 
-            body = b"".join([chunk async for chunk in response.body_iterator])
-            headers = {
-                name: value
-                for name, value in response.headers.items()
-                if name.lower() in {"content-type", "location", "cache-control", "etag", "x-request-id", "x-correlation-id"}
-            }
-            payload = {"status": response.status_code, "headers": headers, "body": body.decode(errors="replace"), "body_hash": body_hash}
-            if redis_cache:
-                await redis_cache.set_json(key, payload, settings.idempotency_ttl_seconds)
-            else:
-                await redis.set(key, json.dumps(payload), ex=settings.idempotency_ttl_seconds)
-            release_lock = True
-            return Response(body, status_code=response.status_code, headers=headers)
-        except Exception:
-            return JSONResponse(
-                status_code=503,
-                content={"error": {"code": "IDEMPOTENCY_UNAVAILABLE", "message": "Payment processing is temporarily unavailable"}},
+            body = response.body if getattr(response, "body", None) is not None else b"".join(
+                [chunk async for chunk in response.body_iterator]
             )
+            response_headers = self._serialize_response_headers(response.headers or {})
+            payload = {
+                "status": response.status_code,
+                "headers": response_headers,
+                "body": body.decode(errors="replace"),
+                "body_hash": body_hash,
+            }
+            await self._store_cache(redis_cache, redis, key, payload, settings.idempotency_ttl_seconds)
+            return Response(body, status_code=response.status_code, headers=response_headers)
+        except Exception:
+            payload = error_response("IDEMPOTENCY_UNAVAILABLE", "Payment processing is temporarily unavailable")
+            return JSONResponse(status_code=503, content=payload.model_dump())
         finally:
-            if release_lock:
-                try:
-                    if redis_cache:
-                        await redis_cache.delete(lock_key)
-                    else:
-                        await redis.delete(lock_key)
-                except Exception:
-                    pass
+            if acquired:
+                await self._release_lock(redis_cache, redis, lock_key)
+
+    @staticmethod
+    def _storage_key(subject: str, path: str, token: str) -> str:
+        digest = hashlib.sha256(f"{subject}:{path}:{token}".encode()).hexdigest()
+        return f"idempotency:{digest}"
+
+    @staticmethod
+    async def _load_cache(redis_cache: RedisCache | None, redis: Any | None, key: str) -> dict[str, Any] | None:
+        if redis_cache is not None:
+            return await redis_cache.get_json(key)
+        return await IdempotencyMiddleware._get_json(redis, key)
+
+    @staticmethod
+    async def _store_cache(redis_cache: RedisCache | None, redis: Any | None, key: str, payload: dict[str, Any], ttl: int) -> None:
+        if redis_cache is not None:
+            await redis_cache.set_json(key, payload, ttl)
+        else:
+            await redis.set(key, json.dumps(payload), ex=ttl)
+
+    @staticmethod
+    async def _acquire_lock(redis_cache: RedisCache | None, redis: Any | None, key: str, ttl: int) -> bool:
+        if redis_cache is not None:
+            return await redis_cache.set_if_not_exists(key, "1", ttl)
+        return bool(await redis.set(key, "1", nx=True, ex=ttl))
+
+    @staticmethod
+    async def _release_lock(redis_cache: RedisCache | None, redis: Any | None, key: str) -> None:
+        try:
+            if redis_cache is not None:
+                await redis_cache.delete(key)
+            elif redis is not None:
+                await redis.delete(key)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _serialize_response_headers(headers: dict[str, str]) -> dict[str, str]:
+        return {name: value for name, value in headers.items() if name.lower() in ALLOWED_RESPONSE_HEADERS}
 
     @staticmethod
     async def _get_json(redis: Any, key: str) -> dict[str, Any] | None:

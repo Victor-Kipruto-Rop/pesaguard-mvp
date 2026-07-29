@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse, Response
 from app.constants import AUTH_PUBLIC_ROUTES, PUBLIC_PATHS
 from app.core.audit import emit
 from app.core.security import verify_api_key, verify_token
+from app.responses import error_response
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -27,9 +28,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 reason=str(exc),
             )
+            payload = error_response("UNAUTHENTICATED", "Valid bearer token or API key required")
             return JSONResponse(
                 status_code=401,
-                content={"error": {"code": "UNAUTHENTICATED", "message": "Valid bearer token or API key required"}},
+                content=payload.model_dump(),
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
