@@ -4,6 +4,8 @@ Before applying the chart, create an external secret named `pesaguard-gateway-se
 
 Set the following non-secret Helm values per environment: immutable container image tag, ingress hostname/TLS secret, Redis endpoint, OIDC issuer/audience/JWKS URL, downstream internal URLs, trusted ingress proxy CIDRs, OpenTelemetry collector endpoint, resource sizing, and autoscaling limits.
 
+For gateway routing behavior, also configure the route-definition inputs that back the gateway's per-service routing metadata. In practice this means providing the downstream service URLs referenced by the route config, plus any optional values for weighted upstreams, fallback services, websocket-enabled services, and route-specific cache/header overrides.
+
 The supplied network policy assumes NGINX Ingress is in the `ingress-nginx` namespace and internal services use ports 8080, 6379, 5432, or 443. Review and adapt those policies before applying them in a cluster with a different topology.
 
 `gateway-service-monitor.yaml` is optional and requires the Prometheus Operator CRD. Apply it only in clusters where that operator is installed.

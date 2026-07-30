@@ -8,3 +8,6 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+
+# Gateway local env should not be committed
+gateway/.env

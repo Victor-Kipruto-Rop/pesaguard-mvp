@@ -27,6 +27,44 @@ Open `http://localhost:8000/docs` for interactive OpenAPI documentation (develop
 
 All non-public API routes require a valid bearer JWT (issuer/audience checked against `PESAGUARD_JWT_ISSUER`/`PESAGUARD_JWT_AUDIENCE`) or a SHA-256-hashed configured API key. A route whose downstream service URL is not configured intentionally returns `503 SERVICE_UNAVAILABLE`, avoiding a misleading success response before a downstream service actually exists.
 
+### Advanced route config
+
+The gateway route config now supports routing features that are useful for production traffic shaping:
+
+- `group` and `priority` to order services during route registration and service discovery.
+- `fallback: true` on a service to allow a secondary fallback route when the primary upstream is unavailable.
+- `upstreams` with `weight` values to enable weighted round-robin selection across multiple downstreams.
+- `websocket: true` to register websocket passthrough routes for a service.
+- `cache_control` and `response_headers` to inject cache and header policies per route.
+- `response_body_rewrite` for simple response body transformations when required.
+
+Example:
+
+```yaml
+version: v1
+services:
+  payments:
+    env_var: PESAGUARD_PAYMENTS_SERVICE_URL
+    gateway_path: /payments
+    group: core
+    priority: 5
+    health_path: /health
+    health_method: GET
+    methods: [GET, POST]
+    upstreams:
+      - env_var: PESAGUARD_PAYMENTS_SERVICE_URL_A
+        weight: 1
+      - env_var: PESAGUARD_PAYMENTS_SERVICE_URL_B
+        weight: 3
+    cache_control: public, max-age=60
+    response_headers:
+      X-Gateway-Mode: proxy
+    websocket: true
+  fallback:
+    env_var: PESAGUARD_FALLBACK_SERVICE_URL
+    fallback: true
+```
+
 ## Project layout
 
 ```
