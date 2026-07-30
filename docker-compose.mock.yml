@@ -1,0 +1,45 @@
+services:
+  auth-service:
+    image: python:3.13-slim
+    volumes:
+      - ./docker-compose.mock-scripts:/scripts:ro
+    environment:
+      - MOCK_SERVICE_NAME=auth
+      - MOCK_SERVICE_PORT=8080
+    command: ["python3", "/scripts/mock-server.py"]
+
+  payment-service:
+    image: python:3.13-slim
+    volumes:
+      - ./docker-compose.mock-scripts:/scripts:ro
+    environment:
+      - MOCK_SERVICE_NAME=payment
+      - MOCK_SERVICE_PORT=8080
+    command: ["python3", "/scripts/mock-server.py"]
+
+  transaction-service:
+    image: python:3.13-slim
+    volumes:
+      - ./docker-compose.mock-scripts:/scripts:ro
+    environment:
+      - MOCK_SERVICE_NAME=transactions
+      - MOCK_SERVICE_PORT=8080
+    command: ["python3", "/scripts/mock-server.py"]
+
+  reporting-service:
+    image: python:3.13-slim
+    volumes:
+      - ./docker-compose.mock-scripts:/scripts:ro
+    environment:
+      - MOCK_SERVICE_NAME=reports
+      - MOCK_SERVICE_PORT=8080
+    command: ["python3", "/scripts/mock-server.py"]
+
+  audit-service:
+    image: python:3.13-slim
+    volumes:
+      - ./docker-compose.mock-scripts:/scripts:ro
+    environment:
+      - MOCK_SERVICE_NAME=audit
+      - MOCK_SERVICE_PORT=8080
+    command: ["python3", "/scripts/mock-server.py"]
