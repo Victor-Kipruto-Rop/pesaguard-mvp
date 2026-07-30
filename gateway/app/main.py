@@ -11,7 +11,14 @@ from app.constants import DOCS_PATH, OPENAPI_PATH, REDOC_PATH
 from app.exceptions import register_exception_handlers
 from app.lifecycle import lifespan
 from app.logging.setup import configure_logging
-from app.middleware import AuthenticationMiddleware, IdempotencyMiddleware, RateLimitMiddleware, RequestContextMiddleware, SecurityMiddleware
+from app.middleware import (
+    AuthenticationMiddleware,
+    IdempotencyMiddleware,
+    RateLimitMiddleware,
+    RequestContextMiddleware,
+    ResponseTransformMiddleware,
+    SecurityMiddleware,
+)
 from app.routes import admin_router, health_router, proxy_router
 from app.routes.proxy import register_proxy_routes
 from app.services import RouteManager
@@ -30,9 +37,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
     docs_url = DOCS_PATH if settings.docs_enabled else None
-    app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan,
-                  docs_url=docs_url, redoc_url=REDOC_PATH if settings.docs_enabled else None,
-                  openapi_url=OPENAPI_PATH if settings.docs_enabled else None, generate_unique_id_function=operation_id)
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.version,
+        description="PesaGuard gateway routing with route groups, fallback upstreams, websocket passthrough, and response transformations.",
+        lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=REDOC_PATH if settings.docs_enabled else None,
+        openapi_url=OPENAPI_PATH if settings.docs_enabled else None,
+        generate_unique_id_function=operation_id,
+        openapi_tags=[{"name": "Gateway", "description": "Gateway routing and proxy behavior"}],
+        servers=[{"url": "/", "description": "Gateway"}],
+    )
     app.state.settings = settings
     app.state.route_manager = RouteManager(settings)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
@@ -44,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(AuthenticationMiddleware)
     app.add_middleware(SecurityMiddleware)
+    app.add_middleware(ResponseTransformMiddleware)
     # Starlette executes the most recently added middleware first.
     app.add_middleware(RequestContextMiddleware)
     register_proxy_routes(proxy_router, settings)

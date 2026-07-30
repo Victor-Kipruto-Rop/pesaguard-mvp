@@ -15,6 +15,11 @@ from app.config.routes import RouteConfig
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="PESAGUARD_", extra="ignore")
 
+    def __init__(self, **data: Any) -> None:
+        if data.get("environment") == "test" and "env_file" not in data:
+            data["env_file"] = None
+        super().__init__(**data)
+
     environment: str = "development"
     app_name: str = "PesaGuard API Gateway"
     version: str = "0.1.0"
@@ -154,12 +159,64 @@ class Settings(BaseSettings):
             return self.route_config.gateway_path_for(service)
         return None
 
+    def supports_websocket_for(self, service: str) -> bool:
+        if self.route_config and service in self.route_config.services:
+            return bool(self.route_config.service_definition(service).websocket)
+        return False
+
+    def supports_websocket_for(self, service: str) -> bool:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.supports_websocket_for(service)
+        return False
+
+    def cache_control_for(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.cache_control_for(service)
+        return None
+
+    def response_headers_for(self, service: str) -> dict[str, str]:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.response_headers_for(service)
+        return {}
+
+    def response_body_rewrite_for(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.response_body_rewrite_for(service)
+        return None
+
+    def service_group_for(self, service: str) -> str | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.service_definition(service).group
+        return None
+
+    def service_priority_for(self, service: str) -> int | None:
+        if self.route_config and service in self.route_config.services:
+            return self.route_config.service_definition(service).priority
+        return None
+
+    def fallback_service_for(self, service: str) -> str | None:
+        if self.route_config:
+            return self.route_config.fallback_service_for(service)
+        return None
+
     def upstream_for(self, service: str) -> str | None:
-        env_var = self.service_env_var(service)
-        if env_var:
-            value = os.environ.get(env_var)
-            if value:
-                return value.rstrip("/")
+        if self.route_config and service in self.route_config.services:
+            service_upstream = self.route_config.select_upstream_for(service)
+            if service_upstream:
+                return service_upstream
+            fallback = self.route_config.fallback_service_for(service)
+            if fallback:
+                fallback_upstream = self.route_config.select_upstream_for(fallback)
+                if fallback_upstream:
+                    return fallback_upstream
+
+            env_name = self.route_config.env_var_for(service)
+            if env_name:
+                value = os.environ.get(env_name)
+                if value:
+                    return value.rstrip("/")
+            return None
+
         value = getattr(self, f"{service}_service_url", None)
         return str(value).rstrip("/") if value else None
 
