@@ -1,7 +1,9 @@
 import os
-from typing import List
+from typing import Any, List
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+
+from app.config.shared_config_bridge import SharedConfigBridge
 
 
 class Settings(BaseModel):
@@ -30,20 +32,37 @@ class Settings(BaseModel):
         return self
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, *, store: Any | None = None, secret_provider: Any | None = None) -> "Settings":
+        bridge = SharedConfigBridge(store=store, secret_provider=secret_provider)
+        payload = bridge.load_payload()
+        resolved_payload = bridge.resolve_payload(payload)
+
+        app_name = resolved_payload.get("app_name") or os.getenv("APP_NAME", cls.model_fields["app_name"].default)
+        environment = resolved_payload.get("environment") or os.getenv("ENVIRONMENT", cls.model_fields["environment"].default)
+        debug = resolved_payload.get("debug") if isinstance(resolved_payload.get("debug"), bool) else os.getenv("DEBUG", "false").lower() == "true"
+        database_url = resolved_payload.get("database_url") or os.getenv("DATABASE_URL", cls.model_fields["database_url"].default)
+        secret_key = resolved_payload.get("secret_key") or os.getenv("SECRET_KEY", cls.model_fields["secret_key"].default)
+        jwt_algorithm = resolved_payload.get("jwt_algorithm") or os.getenv("JWT_ALGORITHM", cls.model_fields["jwt_algorithm"].default)
+        jwt_issuer = resolved_payload.get("jwt_issuer") or os.getenv("JWT_ISSUER", cls.model_fields["jwt_issuer"].default)
+        jwt_audience = resolved_payload.get("jwt_audience") or os.getenv("JWT_AUDIENCE", cls.model_fields["jwt_audience"].default)
+        access_token_ttl_minutes = resolved_payload.get("access_token_ttl_minutes") or int(os.getenv("ACCESS_TOKEN_TTL_MINUTES", cls.model_fields["access_token_ttl_minutes"].default))
+        refresh_token_ttl_days = resolved_payload.get("refresh_token_ttl_days") or int(os.getenv("REFRESH_TOKEN_TTL_DAYS", cls.model_fields["refresh_token_ttl_days"].default))
+        trusted_hosts = resolved_payload.get("trusted_hosts") or (os.getenv("TRUSTED_HOSTS", "*").split(",") if os.getenv("TRUSTED_HOSTS") else ["*"])
+        cors_origins = resolved_payload.get("cors_origins") or (os.getenv("CORS_ORIGINS", "*").split(",") if os.getenv("CORS_ORIGINS") else ["*"])
+
         return cls(
-            app_name=os.getenv("APP_NAME", cls.model_fields["app_name"].default),
-            environment=os.getenv("ENVIRONMENT", cls.model_fields["environment"].default),
-            debug=os.getenv("DEBUG", "false").lower() == "true",
-            database_url=os.getenv("DATABASE_URL", cls.model_fields["database_url"].default),
-            secret_key=os.getenv("SECRET_KEY", cls.model_fields["secret_key"].default),
-            jwt_algorithm=os.getenv("JWT_ALGORITHM", cls.model_fields["jwt_algorithm"].default),
-            jwt_issuer=os.getenv("JWT_ISSUER", cls.model_fields["jwt_issuer"].default),
-            jwt_audience=os.getenv("JWT_AUDIENCE", cls.model_fields["jwt_audience"].default),
-            access_token_ttl_minutes=int(os.getenv("ACCESS_TOKEN_TTL_MINUTES", cls.model_fields["access_token_ttl_minutes"].default)),
-            refresh_token_ttl_days=int(os.getenv("REFRESH_TOKEN_TTL_DAYS", cls.model_fields["refresh_token_ttl_days"].default)),
-            trusted_hosts=os.getenv("TRUSTED_HOSTS", "*").split(",") if os.getenv("TRUSTED_HOSTS") else ["*"],
-            cors_origins=os.getenv("CORS_ORIGINS", "*").split(",") if os.getenv("CORS_ORIGINS") else ["*"],
+            app_name=app_name,
+            environment=environment,
+            debug=debug,
+            database_url=database_url,
+            secret_key=secret_key,
+            jwt_algorithm=jwt_algorithm,
+            jwt_issuer=jwt_issuer,
+            jwt_audience=jwt_audience,
+            access_token_ttl_minutes=access_token_ttl_minutes,
+            refresh_token_ttl_days=refresh_token_ttl_days,
+            trusted_hosts=trusted_hosts,
+            cors_origins=cors_origins,
         )
 
 

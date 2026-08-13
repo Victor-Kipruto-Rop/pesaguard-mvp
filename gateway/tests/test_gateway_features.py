@@ -25,9 +25,10 @@ def test_response_transform_middleware_applies_route_specific_cache_and_headers(
     app.state.route_manager = RouteManager(settings)
     app.add_middleware(ResponseTransformMiddleware)
 
-    @app.route("/payments")
     async def payments(request):
         return PlainTextResponse("ok")
+
+    app.add_route("/payments", payments)
 
     client = TestClient(app)
     response = client.get("/payments")

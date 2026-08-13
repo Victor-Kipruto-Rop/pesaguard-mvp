@@ -271,13 +271,11 @@ def register_proxy_routes(router: APIRouter, settings) -> None:
                 route_path,
                 proxy_with_service,
                 methods=[_method],
-                operation_id=f"proxy_{_method.lower()}_{service}",
             )
             router.add_api_route(
                 f"{route_path}/{{path:path}}",
                 proxy_with_service,
                 methods=[_method],
-                operation_id=f"proxy_{_method.lower()}_{service}_path",
             )
 
         if settings.supports_websocket_for(service):

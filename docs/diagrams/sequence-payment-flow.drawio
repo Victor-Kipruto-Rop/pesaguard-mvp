@@ -1,0 +1,52 @@
+<mxfile host="app.diagrams.net" modified="2026-07-31T00:00:00.000Z" agent="Copilot" version="24.7.5">
+  <diagram id="sequence-payment-flow" name="Sequence Payment Flow">
+    <mxGraphModel dx="2000" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Payment Flow — End-to-End Secure Sequence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0F172A;strokeColor=#334155;fontColor=#F8FAFC;fontSize=24;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="20" width="1760" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="From merchant request to downstream settlement, fraud checks, event publication, and notification delivery" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#111827;strokeColor=none;fontColor=#CBD5E1;fontSize=15;" vertex="1" parent="1">
+          <mxGeometry x="320" y="100" width="1760" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="merchant_lifeline" value="Merchant / Client" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#14532D;strokeColor=#4ADE80;fontColor=#F8FAFC;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="160" width="170" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway_lifeline" value="API Gateway" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#1D4ED8;strokeColor=#93C5FD;fontColor=#F8FAFC;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="160" width="180" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="payment_lifeline" value="Payment Service" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#312E81;strokeColor=#818CF8;fontColor=#F8FAFC;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="160" width="180" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="fraud_lifeline" value="Fraud Service" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#312E81;strokeColor=#818CF8;fontColor=#F8FAFC;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="160" width="180" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="rail_lifeline" value="Telco / Bank Rail" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#7C2D12;strokeColor=#FB923C;fontColor=#FFF7ED;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="160" width="180" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="notification_lifeline" value="Notification Service" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#312E81;strokeColor=#818CF8;fontColor=#F8FAFC;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1660" y="160" width="220" height="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="step1" value="1. Create payment request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="merchant_lifeline" target="gateway_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="step2" value="2. Authenticate, validate, and enrich" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="gateway_lifeline" target="payment_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="step3" value="3. Run fraud and risk evaluation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="payment_lifeline" target="fraud_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="step4" value="4. Dispatch to telco / bank rail" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="payment_lifeline" target="rail_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="step5" value="5. Publish payment state event" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="payment_lifeline" target="notification_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="step6" value="6. Return confirmation / receipt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2.2;html=1;" edge="1" parent="1" source="gateway_lifeline" target="merchant_lifeline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

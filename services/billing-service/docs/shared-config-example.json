@@ -1,0 +1,8 @@
+{
+  "app_name": "billing-service",
+  "environment": "development",
+  "debug": false,
+  "database_url": "postgresql://billing:billing@localhost:5432/billing",
+  "secret_key": "${secret:billing_jwt}",
+  "payment_provider_url": "https://payments.example.test"
+}

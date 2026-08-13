@@ -1,0 +1,10 @@
+{
+  "app_name": "auth-service",
+  "environment": "development",
+  "debug": false,
+  "database_url": "sqlite:///./auth-service.db",
+  "secret_key": "${secret:jwt}",
+  "jwt_algorithm": "HS256",
+  "jwt_issuer": "pesaguard",
+  "jwt_audience": "pesaguard-api"
+}

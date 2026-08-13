@@ -1,0 +1,11 @@
+[project]
+name = "pesaguard-shared"
+version = "0.1.0"
+description = "Advanced shared utilities and infrastructure primitives for the Pesaguard platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
